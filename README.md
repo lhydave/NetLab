@@ -12,6 +12,12 @@
    - 要求：每种环境真人5min，机器5min
    - deadline：2021.4.25
 2. 改代码
+   
    - TBD
-3. 写分析
+   
+   写分析
+   
+   - python分析Wireshark的包：[scapy]( https://www.osgeo.cn/scapy/introduction.html)
+   
    - TBD
+
