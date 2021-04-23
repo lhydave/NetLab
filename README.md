@@ -11,7 +11,7 @@
      - 钉钉
      - Teams
      - Zoom（DNS服务器加一个8.8.8.8）
-   - 要求：每种环境真人5min，机器5min
+   - 要求：每种环境真人5min，机器: OBS virtual camera and screen sharing 5min each
    - deadline：2021.4.25
 2. 改代码
    
