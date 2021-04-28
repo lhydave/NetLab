@@ -10,16 +10,20 @@
      - 腾讯会议
      - 钉钉
      - Teams
-     - Zoom（DNS服务器加一个8.8.8.8）
+     - Zoom
    - 要求：每种环境真人5min，机器: OBS virtual camera and screen sharing 5min each
-   - deadline：2021.4.25
+   
 2. 改代码
    
-   - TBD
+   - 提高效率修改正确性 (yzb)
    
-   写分析
+3. 写分析
    
-   - python分析Wireshark的包：[scapy]( https://www.osgeo.cn/scapy/introduction.html)
-   
-   - TBD
+   - python分析Wireshark的包：[scapy]( https://www.osgeo.cn/scapy/introduction.html) (lhp)
+     - 分析OBS和screen sharing
+     - 分析真人视频
+   - 直接用Wireshark的分析工具 (yzb)
+     - 分析真人视频
+   - 分析通话质量差的时候包的特征 (lhy)
+   - 网络环境差的时候各软件的收发策略：包长、包数量 (synthesize)
 
