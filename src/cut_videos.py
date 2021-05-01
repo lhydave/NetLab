@@ -1,10 +1,10 @@
 # cut videos into 5:00
-# open it in NetLab1
+# open it in src
 import os
 from tqdm import tqdm
 total = 40
-def fin_name(x): return "Records/test{}.mp4".format(x)
-def fout_name(x): return "EditedVideo/test{}.mp4".format(x)
+def fin_name(x): return "../Records/test{}.mp4".format(x)
+def fout_name(x): return "../EditedVideo/test{}.mp4".format(x)
 
 
 def cmd_line(
