@@ -10,10 +10,10 @@ library(magrittr)
 library(zoo)
 
 p_bound = 0.05 # p value upper bound to reject the null hypothesis
+DATA_PATH="../Data/"
 
 # Part 1: data processing     
 # read data
-#TODO: read all data
 read_test = function(idx, prefix = "") {
   net_name = paste(c(prefix, "test", as.character(idx), "_net.csv"), collapse = "")
   video_name = paste(c(prefix, "test", as.character(idx), "_video.csv"), collapse = "")
@@ -22,9 +22,13 @@ read_test = function(idx, prefix = "") {
   return(list(net, video))
 }
 
-test = read_test(1)
-test.net = test[[1]]
-test.video = test[[2]]
+# read all data
+read_all = function(total, prefix = "") {
+  temp = (c(1:total) %>% map(~read_test(., prefix)) %>% c)
+  net = temp %>% map(~.[[1]]) %>% c
+  video = temp %>% map(~.[[2]]) %>% c
+  return(list(net, video))
+}
 
 # function to aggregate the network data into 75 points
 aggr = function(x, every = 4) {
@@ -44,7 +48,7 @@ aggr = function(x, every = 4) {
 }
 
 # function to smooth the curve
-smooth_frame = function(x, width = 5) {
+smooth_frame = function(x, width = 3) {
   f = function(name) {
     temp = data.frame(x[[name]])
     if (name != "timestamp")
@@ -54,17 +58,25 @@ smooth_frame = function(x, width = 5) {
   }
   return(setDT(na.omit(names(x) %>% map(f) %>% reduce(cbind.data.frame))))
 }
-aggr_net = aggr(test.net)
-aggr_smooth_net = smooth_frame(aggr_net)
-test.video = smooth_frame(test.video)
-#matplot(c(0:74), cbind(aggr_net$CapLen, aggr_smooth_net$CapLen), type = "l", lty = 1, lwd = 2, col = c("red", "blue"))
 
 # Part 2: single analysis
 # test stationarity - using p-value of Augmented Dickey–Fuller Test
-adf_p = function(x) { return(adfTest(x)@test$p.value) }
+is_stat = function(x) { return(adfTest(x)@test$p.value < p_bound) }
 
 # test white noise - using p-value of Ljung-Box Test
-LBox_p = function(x) { return(Box.test(x, type = "Ljung-Box")$p.value) }
+is_white_noise = function(x) {
+  return(Box.test(x, type = "Ljung-Box",
+          lag = log(length(x) + 1))$p.value > p_bound)
+}
+
+# give the type of the time series
+net_type = function(x) {
+  if(!is_stat(x))
+    return('NS')
+  if(!is_white_noise(x))
+    return('S')
+  return('W')
+}
 
 # detect outliers for time series x
 yield_outliers = function(x) {
@@ -82,7 +94,6 @@ yield_outliers = function(x) {
 }
 
 # plot a curve with outliers
-
 plot_with_outliers = function(priv, d, cid = 1) {
   idx = yield_outliers(d)
   temp = data.frame(time = c(1:length(d)), out = d)
@@ -96,24 +107,164 @@ plot_with_outliers = function(priv, d, cid = 1) {
   return(p)
 }
 
-#print(plot_with_outliers(plot_with_outliers(NULL, aggr_net$CapLen / 5), test.video$freeze, 3))
-
 # Part 3: correlation analysis
-# all pearson correlation
-pearson_all = function(x, y) {
-  return(cor(x, y))
+# all correlation - using kendall method 
+cor_all = function(x, y) {
+  return(cor(x, y, method = 'kendall'))
 }
-#print(pearson_all(aggr_smooth_net$CapLen, test.video$blur))
-print(pearson_all(test.video$freeze, test.video$blur))
 
-# pearson correlation concerning rolling windows
-pearson_rolling = function(x, y, rolln = 20) {
+# test whether x and y are correlated - using kendall method
+is_cor = function(x, y) {
+  return(cor.test(x, y, method = 'kendall')$p.value < p_bound)
+}
+
+# correlation concerning rolling windows
+cor_rolling = function(x, y, rolln = 10) {
   temp = data.frame(x, y)
-  return(rollapply(temp, width = rolln, function(x) cor(x[, 1], x[, 2]), by.column = FALSE))
+  return(rollapply(temp, width = rolln, function(x) cor_all(x[, 1], x[, 2]), by.column = FALSE))
 }
 
-#plot(pearson_rolling(aggr_smooth_net$CapLen, test.video$freeze), type = "l")
-#matplot(c(1:length(aggr_smooth_net$CapNum)), 
-#cbind(pearson_rolling(aggr_smooth_net$CapLen, aggr_smooth_net$CapNum), 
-#aggr_smooth_net$CapNum / 500),
-#type = "l", col = c("blue", "red"), lty = 1, lwd = 2)
+# test whether x and y are correlated concerning rolling windows
+is_cor_rolling = function(x, y, rolln = 10, thres=0.75) {
+  temp = cor_rolling(x, y, rolln)
+  posi = length(temp[temp > 0.2])
+  nega = length(temp[temp < -0.2])
+  return((posi + nega) / length(temp) > thres)
+}
+
+# Part 4: complete analysis
+file_n = 40
+tests = read_all(file_n, prefix = DATA_PATH)
+tests.net = tests[[1]]
+tests.video = tests[[2]]
+#print(tests.net)
+#print(tests.video)
+
+# Subpart 1 - analyze correlation between caplen and capnum
+
+# analyze all correlation
+is_cor_cnt = tests.net %>%
+              map(~is_cor(.$CapLen, .$CapNum)) %>% unlist %>% table
+print(is_cor_cnt)
+cor.all.data.net = (tests.net %>%
+                map_dbl(~cor_all(.$CapLen, .$CapNum)))
+print(summary(cor.all.data.net))
+hist(cor.all.data.net, main = NULL)
+
+# analyze rolling correlation of smoothed data
+tests.net.smoothed = tests.net %>% map(smooth_frame)
+cor.roll.data.net = (tests.net.smoothed %>%
+              map(~cor_rolling(.$CapLen, .$CapNum)) %>% unlist)
+print(summary(cor.roll.data.net))
+hist(cor.roll.data.net, main = NULL)
+
+# Subpart 2 - analyze the relationship between net and video quality
+
+# aggregate the net data and smooth all data
+tests.net.aggr = (tests.net %>% map(aggr))
+tests.net.aggr.smoothed = (tests.net.aggr %>% map(smooth_frame))
+tests.video.smoothed = (tests.video %>% map(smooth_frame))
+
+# analyze all correlation
+# freeze
+is_cor_freeze = c(1:length(tests.video)) %>%
+                    map(~is_cor(tests.net.aggr.smoothed[[.]]$CapLen, tests.video.smoothed[[.]]$freeze)) %>% 
+                    unlist
+print(is_cor_freeze)
+print(table(is_cor_freeze))
+
+cor.all.data.freeze = rep(NA, each = length(tests.video))
+cor.all.data.freeze[is_cor_freeze == TRUE] = which(is_cor_freeze == TRUE) %>%
+                    map(~cor_all(tests.net.aggr.smoothed[[.]]$CapLen, tests.video.smoothed[[.]]$freeze)) %>% 
+                    unlist
+print(summary(cor.all.data.freeze))
+hist(cor.all.data.freeze)
+is_posi_cor_freeze = which(cor.all.data.freeze > 0.2)
+is_neg_cor_freeze = which(cor.all.data.freeze < -0.2)
+
+# noise
+is_cor_noise = c(1:length(tests.video)) %>%
+                    map(~is_cor(tests.net.aggr.smoothed[[.]]$CapLen, tests.video.smoothed[[.]]$noise)) %>% 
+                    unlist
+print(is_cor_noise)
+print(table(is_cor_noise))
+
+cor.all.data.noise = rep(NA, each = length(tests.video))
+cor.all.data.noise[is_cor_noise == TRUE] = which(is_cor_noise == TRUE) %>%
+                    map(~cor_all(tests.net.aggr.smoothed[[.]]$CapLen, tests.video.smoothed[[.]]$noise)) %>% 
+                    unlist
+print(summary(cor.all.data.noise))
+hist(cor.all.data.noise[is_cor_noise == TRUE])
+is_posi_cor_noise = which(cor.all.data.noise > 0.2)
+is_neg_cor_noise = which(cor.all.data.noise < -0.2)
+
+# blur
+is_cor_blur = c(1:length(tests.video)) %>%
+                    map(~is_cor(tests.net.aggr.smoothed[[.]]$CapLen, tests.video.smoothed[[.]]$blur)) %>% 
+                    unlist
+print(is_cor_blur)
+print(table(is_cor_blur))
+
+cor.all.data.blur = rep(NA, each = length(tests.video))
+cor.all.data.blur[is_cor_blur == TRUE] = which(is_cor_blur == TRUE) %>%
+                    map(~cor_all(tests.net.aggr.smoothed[[.]]$CapLen, tests.video.smoothed[[.]]$blur)) %>% 
+                    unlist
+print(summary(cor.all.data.blur))
+hist(cor.all.data.blur[is_cor_blur == TRUE])
+is_posi_cor_blur = which(cor.all.data.blur > 0.2)
+is_neg_cor_blur = which(cor.all.data.blur < -0.2)
+
+# contingency table analysis
+cont.data.freeze = rep('NC', each=length(tests.video))
+cont.data.freeze[is_posi_cor_freeze] = 'P'
+cont.data.freeze[is_neg_cor_freeze] = 'N'
+cont.data.freeze = factor(cont.data.freeze, levels=c("NC", "P", "N"))
+
+cont.data.noise = rep('NC', each=length(tests.video))
+cont.data.noise[is_posi_cor_noise] = 'P'
+cont.data.noise[is_neg_cor_noise] = 'N'
+cont.data.noise = factor(cont.data.noise, levels=c("NC", "P", "N"))
+
+cont.data.blur = rep('NC', each=length(tests.video))
+cont.data.blur[is_posi_cor_blur] = 'P'
+cont.data.blur[is_neg_cor_blur] = 'N'
+cont.data.blur = factor(cont.data.blur, levels=c("NC", "P", "N"))
+
+cont.table = table(cont.data.noise, cont.data.blur, cont.data.freeze)
+print(cont.table)
+
+# independency test - using pearson chi^2 test
+print(chisq.test(cont.data.noise, cont.data.blur))
+print(chisq.test(cont.data.noise, cont.data.freeze))
+print(chisq.test(cont.data.blur, cont.data.freeze))
+
+# Subpart 3 - analyze network environment
+
+# test stationarity
+tests.net.CapNum.type = tests.net %>% map(~net_type(.$CapNum)) %>% unlist
+print(table(tests.net.CapNum.type))
+print(which(tests.net.CapNum.type == "S"))
+
+tests.net.CapLen.type = tests.net %>% map(~net_type(.$CapLen)) %>% unlist
+print(table(tests.net.CapLen.type))
+
+# test outliers
+tests.net.CapNum.outliern = tests.net %>%
+                map(~yield_outliers(.$CapNum)) %>% map(length) %>% unlist
+print(summary(tests.net.CapNum.outliern))
+tests.net.CapLen.outliern = tests.net %>%
+                map(~yield_outliers(.$CapLen)) %>% map(length) %>% unlist
+print(summary(tests.net.CapLen.outliern))
+plot(tests.net.CapLen.outliern, tests.net.CapNum.outliern)
+
+# discuss the relationship between basic speed and performance
+test.env = read.csv(paste(c(DATA_PATH, "fileinfo.csv"), collapse = ""))
+test.env$netspeed = test.env$netspeed * 1000/8
+tests.net.avg_num = tests.net %>% map(~ .$CapNum) %>% map(mean) %>% unlist
+tests.net.avg_speed = tests.net %>% map(~ .$CapLen * .$CapNum/1000) %>% map(mean) %>% unlist
+print(cor_all(test.env$netspeed, tests.net.avg_num))
+print(cor_all(test.env$netspeed, tests.net.avg_speed))
+print(cor_all(test.env$netspeed, tests.net.CapNum.outliern))
+plot(test.env$netspeed, tests.net.avg_num)
+plot(test.env$netspeed, tests.net.avg_speed)
+plot(test.env$netspeed, tests.net.CapNum.outliern)
